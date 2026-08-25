@@ -1,124 +1,124 @@
-function doGet(e) {
-  var action = e ? e.parameter.action : null;
-  var result = {};
-  if (action === "getFaces") result = getAllFaceDescriptors();
-  else if (action === "getTopics") result = getTopicsList(e.parameter.mode || "Toolbox");
-  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+// دالة استقبال طلبات GET (فتح صفحة الأبلكيشن)
+function doGet() {
+  return HtmlService.createTemplateFromFile('Index')
+      .evaluate()
+      .setTitle('نظام HSSE - بصمة الوجه')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
+// دالة استقبال طلبات POST (الحفظ والتسجيل من الموقع الخارجي)
 function doPost(e) {
+  var data = JSON.parse(e.postData.contents);
+  var action = data.action;
   var result = {};
-  try {
-    var postData = JSON.parse(e.postData.contents);
-    if (postData.action === "checkWorker") result = getWorkerInfo(postData.workerId);
-    else if (postData.action === "register") result = saveFaceDescriptor(postData.workerId, postData.descriptor);
-    else if (postData.action === "record") result = recordAttendance(postData.sheetName, postData.workerId, postData.topicName);
-  } catch (err) {
-    result = { success: false, message: "خطأ: " + err.toString() };
-  }
-  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
-}
-
-function getWorkerInfo(workerId) {
-  var data = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Data").getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][0].toString().trim() === workerId.toString().trim()) {
-      return { found: true, id: data[i][0], name: data[i][1], job: data[i][3] };
-    }
-  }
-  return { found: false };
-}
-
-function saveFaceDescriptor(workerId, descriptorData) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Data");
-  var data = sheet.getDataRange().getValues();
-  var faceColIndex = data[0].indexOf("FaceData") === -1 ? data[0].length : data[0].indexOf("FaceData");
-  if (data[0].indexOf("FaceData") === -1) sheet.getRange(1, faceColIndex + 1).setValue("FaceData");
   
-  var descStr = typeof descriptorData === "object" ? JSON.stringify(descriptorData) : descriptorData;
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][0].toString().trim() === workerId.toString().trim()) {
-      sheet.getRange(i + 1, faceColIndex + 1).setValue(descStr);
-      return { success: true, message: "تم حفظ البصمة بنجاح!" };
-    }
+  if (action === "verify") {
+    // البحث عن العامل وتأكيد الـ ID
+    result = verifyWorker(data.workerId);
+  } else if (action === "register") {
+    // تسجيل الحضور (Toolbox أو Specific)
+    result = registerWorker(data.sheetName, data.workerId, data.topicName);
   }
-  return { success: false, message: "لم يتم العثور على العامل" };
+  
+  return ContentService.createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
-function getAllFaceDescriptors() {
-  var data = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Data").getDataRange().getValues();
-  var faceColIndex = data[0].indexOf("FaceData");
-  var list = [];
-  if (faceColIndex === -1) return list;
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][faceColIndex]) {
-      try { list.push({ id: data[i][0], name: data[i][1], descriptor: JSON.parse(data[i][faceColIndex]) }); } catch(e) {}
-    }
-  }
-  return list;
-}
-
-// الدالة السحرية الجديدة (النسخ التلقائي + منع التكرار)
-function recordAttendance(sheetName, workerId, topicName) {
+// 1. دالة التحقق من الـ ID في شيت Data
+function verifyWorker(workerId) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var dataSheet = ss.getSheetByName("Data");
-  var targetSheet = ss.getSheetByName(sheetName);
+  var sheet = ss.getSheetByName("Data");
+  var data = sheet.getDataRange().getValues();
   
-  if (!targetSheet) return { success: false, message: "الشيت غير موجود!" };
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0].toString().trim() === workerId.toString().trim()) {
+      return {
+        found: true,
+        id: data[i][0],
+        name: data[i][1],
+        job: data[i][3],
+        company: data[i][4]
+      };
+    }
+  }
+  return { found: false, message: "الرقم التعريفي غير موجود" };
+}
 
-  // 1. جلب بيانات العامل كاملة من شيت الداتا
-  var dataValues = dataSheet.getDataRange().getValues();
-  var workerData = null;
-  for (var i = 1; i < dataValues.length; i++) {
-    if (dataValues[i][0].toString().trim() === workerId.toString().trim()) {
-      workerData = dataValues[i]; // أخدنا الصف بتاعه بالكامل
+// 2. دالة تسجيل الحضور (معدلة لمنع التكرار)
+function registerWorker(sheetName, workerId, topicName) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var targetSheet = ss.getSheetByName(sheetName);
+  if (!targetSheet) return { success: false, message: "الشيت غير موجود" };
+  
+  // أ. التأكد إن العامل موجود في شيت Data أولاً وسحب بياناته
+  var workerInfo = verifyWorker(workerId);
+  if (!workerInfo.found) return { success: false, message: "العامل غير مسجل في Data" };
+  
+  // ب. البحث عن العامل في الشيت المستهدف (Toolbox/Specific)
+  var targetData = targetSheet.getDataRange().getValues();
+  var targetRowIndex = -1;
+  for (var j = 1; j < targetData.length; j++) {
+    if (targetData[j][0].toString().trim() === workerId.toString().trim()) {
+      targetRowIndex = j;
       break;
     }
   }
-  if (!workerData) return { success: false, message: "العامل غير مسجل في الداتا!" };
-
-  // 2. البحث عن عمود الموضوع في شيت الحضور
-  var targetValues = targetSheet.getDataRange().getValues();
-  var headers = targetValues[0];
-  var topicCol = -1;
-  for (var j = 0; j < headers.length; j++) {
-    if (headers[j].toString().trim().toLowerCase() === topicName.toString().trim().toLowerCase()) {
-      topicCol = j; break;
+  
+  // لو ملقيناهوش في شيت الـ Toolbox/Specific، نضيفه (نقل بياناته من Data)
+  if (targetRowIndex === -1) {
+    targetSheet.appendRow([
+      workerInfo.id, workerInfo.name, '', '', workerInfo.company, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''
+    ]);
+    targetData = targetSheet.getDataRange().getValues();
+    targetRowIndex = targetData.length - 1;
+  }
+  
+  // ج. البحث عن عمود الموضوع
+  var targetHeaders = targetData[0];
+  var topicColIndex = -1;
+  for (var k = 0; k < targetHeaders.length; k++) {
+    if (targetHeaders[k].toString().trim().toLowerCase() === topicName.toString().trim().toLowerCase()) {
+      topicColIndex = k;
+      break;
     }
   }
-  if (topicCol === -1) return { success: false, message: "اسم المحاضرة غير موجود بالشيت!" };
-
-  var markValue = (sheetName === "Specific") ? "✓" : Utilities.formatDate(new Date(), "GMT+3", "yyyy-MM-dd HH:mm");
-
-  // 3. التأكد هل العامل ده نزل في الشيت ده قبل كده ولا لأ؟
-  var workerRow = -1;
-  for (var k = 1; k < targetValues.length; k++) {
-    if (targetValues[k][0].toString().trim() === workerId.toString().trim()) {
-      workerRow = k + 1; break;
+  
+  if (topicColIndex === -1) {
+    return { success: false, message: "الموضوع '" + topicName + "' غير موجود في عناوين الشيت!" };
+  }
+  
+  // د. منطق منع التكرار: نحاول نضيف التاريخ
+  // نتحقق أولاً لو فيه تكرار بنفس التاريخ في أي خانة في الصف ده
+  var todayDate = Utilities.formatDate(new Date(), "GMT+3", "yyyy-MM-dd");
+  var currentRow = targetData[targetRowIndex];
+  for (var c = 6; c < currentRow.length; c++) { // نبدأ من العمود 7 (المواضيع)
+    var cellValue = currentRow[c].toString();
+    if (cellValue.indexOf(todayDate) !== -1) {
+      return { success: false, message: "⛔ مكرر: العامل (" + workerInfo.name + ") مسجل بالفعل اليوم!" };
     }
   }
-
-  if (workerRow !== -1) {
-    // العامل موجود في الشيت.. هل حضر المحاضرة دي بالذات قبل كده؟
-    var existingValue = targetSheet.getRange(workerRow, topicCol + 1).getValue();
-    if (existingValue !== "") {
-      return { success: false, message: "⚠️ العامل ده متسجل مسبقاً في نفس المحاضرة!" }; // منع التكرار
+  
+  // هـ. حفظ التاريخ والوقت في أول خانة فاضية في الصف ده
+  var timeNow = Utilities.formatDate(new Date(), "GMT+3", "yyyy-MM-dd HH:mm");
+  var inserted = false;
+  for (var c = 6; c < currentRow.length; c++) {
+    if (currentRow[c].toString().trim() === "") {
+      targetSheet.getRange(targetRowIndex + 1, c + 1).setValue(timeNow);
+      inserted = true;
+      break;
     }
-    targetSheet.getRange(workerRow, topicCol + 1).setValue(markValue); // تسجيل الحضور
-  } else {
-    // العامل مش موجود خالص في الشيت.. انسخ بياناته من الداتا ونزله صف جديد
-    var newRow = new Array(headers.length).fill("");
-    for (var m = 0; m <= 5; m++) { // نسخ أول 6 أعمدة (ID, الاسم, البطاقة, المهنة, التاريخ, الشركة)
-      if (m < workerData.length) newRow[m] = workerData[m];
-    }
-    newRow[topicCol] = markValue;
-    targetSheet.appendRow(newRow);
   }
-
-  return { success: true, workerName: workerData[1], topic: topicName };
-}
-
-function getTopicsList(sheetName) {
-  var headers = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName).getDataRange().getValues()[0];
-  return headers.slice(6).filter(function(h) { return h && h.toString().toLowerCase() !== "facedata"; });
+  
+  if (!inserted) {
+    // لو مفيش خانة فاضية في المواضيع، نحط في العمود المختار (Overwrite or stop)
+    targetSheet.getRange(targetRowIndex + 1, topicColIndex + 1).setValue(timeNow);
+  }
+  
+  return {
+    success: true,
+    workerName: workerInfo.name,
+    topic: topicName,
+    time: timeNow
+  };
 }
