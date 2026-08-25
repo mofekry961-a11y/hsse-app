@@ -57,7 +57,7 @@
 
     <div id="registerDiv" class="d-none">
       <div class="input-group mb-2">
-        <input type="number" id="workerId" class="form-control bg-dark text-white" placeholder="أدخل ID العامل">
+        <input type="number" id="workerId" class="form-control bg-dark text-white border-secondary" placeholder="أدخل ID العامل">
         <button class="btn btn-primary" onclick="verifyWorker()">تحقق</button>
       </div>
       <div id="workerNameLabel" class="text-info fw-bold mb-2"></div>
@@ -67,7 +67,7 @@
 </div>
 
 <script>
-  // رابط الجوجل سكريبت بتاعك
+  // رابط الجوجل سكريبت الخاص بك جاهز
   const API_URL = "https://script.google.com/macros/s/AKfycbxJYmRmWrjdoR0XJjNcu6Q80QQn7A1c3oI8JnE2w0jz6a_u7G4YF8LGwVyAHk9RdrI3_w/exec";
 
   const video = document.getElementById('video');
@@ -84,7 +84,7 @@
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       video.srcObject = stream;
-      statusBox.innerText = "🎥 جاري تحميل محرك الذكاء الاصطناعي...";
+      statusBox.innerText = "🎥 الكاميرا تعمل.. جاري تحميل محرك الذكاء الاصطناعي...";
       
       const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
       await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
@@ -139,12 +139,15 @@
     fetch(API_URL, { method: "POST", body: JSON.stringify({ action: "checkWorker", workerId: id }) })
     .then(r => r.json()).then(res => {
       if(res.found) {
-        document.getElementById('workerNameLabel').innerText = `✅ ${res.name}`;
+        document.getElementById('workerNameLabel').innerText = `✅ ${res.name} (${res.job})`;
         document.getElementById('saveFaceBtn').disabled = false;
         currentVerifiedId = res.id;
+        statusBox.className = "status-msg bg-success text-white";
+        statusBox.innerText = "وجه الكاميرا للعامل واضغط حفظ البصمة";
       } else {
         document.getElementById('workerNameLabel').innerText = "❌ العامل غير موجود";
         document.getElementById('saveFaceBtn').disabled = true;
+        currentVerifiedId = null;
       }
     });
   }
