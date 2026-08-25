@@ -34,6 +34,9 @@
       </div>
     </div>
   </div>
+  
+  <!-- زرار لف الكاميرا -->
+  <button class="btn btn-secondary mb-2 mx-auto d-block" style="max-width: 480px;" onclick="flipCamera()">🔄 لف الكاميرا (أمامي / خلفي)</button>
 
   <div id="statusBox" class="status-msg bg-warning text-dark">⏳ جاري فتح الكاميرا وتجهيز النظام...</div>
 
@@ -67,8 +70,8 @@
 </div>
 
 <script>
-  // رابط الجوجل سكريبت الخاص بك جاهز
-  const API_URL = "https://script.google.com/macros/s/AKfycbxJYmRmWrjdoR0XJjNcu6Q80QQn7A1c3oI8JnE2w0jz6a_u7G4YF8LGwVyAHk9RdrI3_w/exec";
+  // الرابط الجديد بتاعك تم إضافته بنجاح
+  const API_URL = "https://script.google.com/macros/s/AKfycbxq-Edp4Eud-3K6Y7IBv068hS8TeGd41FkfPgyE3zi2nZhFBnDfULCgfXRF2SrnH7MGsQ/exec";
 
   const video = document.getElementById('video');
   const canvas = document.getElementById('overlay');
@@ -79,13 +82,31 @@
   let isProcessing = false;
   let currentVerifiedId = null;
   let pendingWorkerId = null;
+  let currentFacingMode = 'environment'; 
+
+  async function startCamera() {
+    if (video.srcObject) {
+      video.srcObject.getTracks().forEach(track => track.stop());
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode } });
+      video.srcObject = stream;
+    } catch (e) {
+      statusBox.className = "status-msg bg-danger text-white";
+      statusBox.innerText = "❌ الكاميرا لا تعمل: " + e.message;
+    }
+  }
+
+  function flipCamera() {
+    currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+    startCamera();
+  }
 
   async function init() {
+    await startCamera();
+    statusBox.innerText = "🎥 جاري تحميل محرك الذكاء الاصطناعي...";
+    
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      video.srcObject = stream;
-      statusBox.innerText = "🎥 الكاميرا تعمل.. جاري تحميل محرك الذكاء الاصطناعي...";
-      
       const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
       await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
       await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL);
@@ -98,9 +119,9 @@
       loadFaces();
       changeMode();
       startAutoRecognition();
-    } catch (e) {
+    } catch(e) {
       statusBox.className = "status-msg bg-danger text-white";
-      statusBox.innerText = "❌ الكاميرا لا تعمل: " + e.message;
+      statusBox.innerText = "❌ فشل تحميل الذكاء الاصطناعي.";
     }
   }
 
@@ -142,8 +163,6 @@
         document.getElementById('workerNameLabel').innerText = `✅ ${res.name} (${res.job})`;
         document.getElementById('saveFaceBtn').disabled = false;
         currentVerifiedId = res.id;
-        statusBox.className = "status-msg bg-success text-white";
-        statusBox.innerText = "وجه الكاميرا للعامل واضغط حفظ البصمة";
       } else {
         document.getElementById('workerNameLabel').innerText = "❌ العامل غير موجود";
         document.getElementById('saveFaceBtn').disabled = true;
