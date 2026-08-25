@@ -45,16 +45,18 @@
     <div id="topicDiv"><select id="topicSelect" class="form-select bg-dark text-white border-secondary"></select></div>
 
     <div id="registerDiv" class="d-none">
-      <div class="input-group">
-        <input type="number" id="workerId" class="form-control bg-dark text-white" placeholder="أدخل ID العامل">
-        <button class="btn btn-danger" onclick="saveNewFace()">حفظ البصمة</button>
+      <div class="input-group mb-2">
+        <input type="number" id="workerId" class="form-control bg-dark text-white border-secondary" placeholder="أدخل ID العامل">
+        <button class="btn btn-primary" onclick="verifyWorker()">تحقق</button>
       </div>
+      <div id="workerNameLabel" class="text-info fw-bold mb-2"></div>
+      <button id="saveFaceBtn" class="btn btn-danger w-100" onclick="saveNewFace()" disabled>📸 حفظ البصمة</button>
     </div>
   </div>
 </div>
 
 <script>
-  // رابط الجوجل سكريبت الخاص بك جاهز
+  // رابط الجوجل سكريبت الخاص بك
   const API_URL = "https://script.google.com/macros/s/AKfycbxJYmRmWrjdoR0XJjNcu6Q80QQn7A1c3oI8JnE2w0jz6a_u7G4YF8LGwVyAHk9RdrI3_w/exec";
 
   const video = document.getElementById('video');
@@ -63,6 +65,7 @@
   let modelsLoaded = false;
   let labeledDescriptors = [];
   let isProcessing = false;
+  let currentVerifiedId = null;
 
   async function init() {
     try {
@@ -112,6 +115,34 @@
       });
   }
 
+  // دالة التحقق من العامل
+  function verifyWorker() {
+    const id = document.getElementById('workerId').value;
+    if(!id) return alert("الرجاء كتابة رقم التعريف (ID) أولاً!");
+    
+    statusBox.className = "status-msg bg-info text-white";
+    statusBox.innerText = "🔍 جاري البحث عن بيانات العامل...";
+    
+    fetch(API_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "checkWorker", workerId: id })
+    }).then(r => r.json()).then(res => {
+      if(res.found) {
+        document.getElementById('workerNameLabel').innerText = `✅ ${res.name} (${res.job})`;
+        document.getElementById('saveFaceBtn').disabled = false;
+        currentVerifiedId = res.id;
+        statusBox.className = "status-msg bg-success text-white";
+        statusBox.innerText = "وجه الكاميرا للعامل واضغط حفظ البصمة";
+      } else {
+        document.getElementById('workerNameLabel').innerText = "❌ الرقم غير موجود في شيت Data!";
+        document.getElementById('saveFaceBtn').disabled = true;
+        currentVerifiedId = null;
+        statusBox.className = "status-msg bg-danger text-white";
+        statusBox.innerText = "تأكد من كتابة الرقم بشكل صحيح";
+      }
+    });
+  }
+
   async function startAutoRecognition() {
     const displaySize = { width: video.videoWidth, height: video.videoHeight };
     faceapi.matchDimensions(canvas, displaySize);
@@ -150,27 +181,35 @@
       method: "POST",
       body: JSON.stringify({ action: "record", sheetName: mode, workerId: workerId, topicName: topic })
     }).then(r => r.json()).then(res => {
-      statusBox.className = "status-msg bg-success text-white";
-      statusBox.innerText = `✅ تم تسجيل: ${res.workerName}`;
+      if(res.success) {
+        statusBox.className = "status-msg bg-success text-white";
+        statusBox.innerText = `✅ تم تسجيل حضور: ${res.workerName}`;
+      } else {
+        statusBox.className = "status-msg bg-danger text-white";
+        statusBox.innerText = `❌ ${res.message}`;
+      }
       setTimeout(() => { isProcessing = false; }, 3000);
     });
   }
 
   async function saveNewFace() {
-    const id = document.getElementById('workerId').value;
-    if(!id) return alert("اكتب ID العامل الأول!");
+    if(!currentVerifiedId) return alert("قم بالتحقق من العامل أولاً!");
     
     statusBox.innerText = "📸 جاري التقاط البصمة...";
     const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks(true).withFaceDescriptor();
 
-    if(!detection) return alert("لم يتم اكتشاف وجه بوضوح!");
+    if(!detection) return alert("لم يتم اكتشاف وجه بوضوح! اقترب من الكاميرا.");
 
     fetch(API_URL, {
       method: "POST",
-      body: JSON.stringify({ action: "register", workerId: id, descriptor: Array.from(detection.descriptor) })
+      body: JSON.stringify({ action: "register", workerId: currentVerifiedId, descriptor: Array.from(detection.descriptor) })
     }).then(r => r.json()).then(res => {
       alert(res.message);
-      loadFaces();
+      document.getElementById('workerId').value = "";
+      document.getElementById('workerNameLabel').innerText = "";
+      document.getElementById('saveFaceBtn').disabled = true;
+      currentVerifiedId = null;
+      loadFaces(); // تحديث البصمات في الخلفية
     });
   }
 
